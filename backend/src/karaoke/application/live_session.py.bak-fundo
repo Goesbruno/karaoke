@@ -1,0 +1,120 @@
+import base64,json,re,threading,time
+from dataclasses import dataclass,field,asdict
+
+class SessionError(ValueError):pass
+
+@dataclass
+class LiveState:
+    version:int=0
+    song_id:str|None=None
+    playing:bool=False
+    position_ms:int=0
+    started_at_ms:int=0
+    instrumental:float=.85
+    vocals:float=0.0
+    backing:float=0.0
+    offset_ms:int=0
+    background:str=""
+    blur:int=0
+    bg_opacity:float=1.0
+    host_online:bool=False
+    host_ready:bool=False
+
+    def position(self,now:int):
+        return max(0,self.position_ms+(max(0,now-self.started_at_ms) if self.playing else 0))
+
+class LiveSession:
+    """Um único estado para toda a LAN; commit no SQLite antes de difundir eventos."""
+    def __init__(self,store,clock=None,files=None):
+        self.store=store;self.files=files;self.clock=clock or (lambda:int(time.time()*1000));self.lock=threading.RLock()
+        self.store.db.execute('CREATE TABLE IF NOT EXISTS live_session(id INTEGER PRIMARY KEY CHECK(id=1), json TEXT NOT NULL)')
+        row=self.store.db.execute('SELECT json FROM live_session WHERE id=1').fetchone()
+        self.state=LiveState()
+        if row:
+            d=json.loads(row['json']);self.state=LiveState(**{k:v for k,v in d.items() if k in LiveState.__dataclass_fields__})
+        # Nunca retomar audio automaticamente após reiniciar o servidor.
+        self.state.position_ms=self.state.position(self.clock());self.state.playing=False
+        self.state.host_online=False;self.state.host_ready=False
+        self._save()
+
+    def _save(self):
+        with self.store._tx() as c:
+            c.execute('INSERT INTO live_session(id,json) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json',
+                      (json.dumps(asdict(self.state),ensure_ascii=False),))
+
+    def snapshot(self):
+        with self.lock:return {**asdict(self.state),'server_ms':self.clock()}
+
+    def host(self,online:bool):
+        with self.lock:
+            now=self.clock();self.state.position_ms=self.state.position(now)
+            self.state.playing=False;self.state.host_online=online;self.state.host_ready=False
+            self.state.version+=1;self._save();return self.snapshot()
+
+    def command(self,role:str,kind:str,value=None):
+        with self.lock:
+            s=self.state;now=self.clock()
+            if role not in ('host','guest'):raise SessionError('papel inválido')
+            if kind in ('select','ready','background','offset','report','appearance') and role!='host':
+                raise SessionError('ação exclusiva do host')
+            if kind not in ('select','ready','background','offset','report','appearance','play','pause','seek','volume'):
+                raise SessionError('comando desconhecido')
+            if kind=='select':
+                song=self.store.get_song(str(value))
+                if song.status.value!='CONCLUIDA':raise SessionError('música não concluída')
+                from .library_read import LibraryReader
+                if self.files is None or not LibraryReader(self.files).read(song).ready:
+                    raise SessionError('stems essenciais indisponíveis')
+                from ..infrastructure.lyrics_store import get
+                if get(self.store,song.id)['status']!='LETRA_SINCRONIZADA':
+                    raise SessionError('letra sincronizada ausente')
+                s.song_id=song.id;s.position_ms=0;s.started_at_ms=0;s.playing=False;s.host_ready=False
+                s.offset_ms=self.store.lyrics_offset(song.id)
+            elif kind=='ready':
+                if not s.song_id or not s.host_online:raise SessionError('sem música ou host')
+                s.host_ready=True
+            elif kind in ('play','pause','seek','volume','report'):
+                if not s.host_online or not s.host_ready or not s.song_id:raise SessionError('áudio do host não está pronto')
+                if kind=='play':
+                    if not s.playing:s.started_at_ms=now+120;s.playing=True
+                elif kind=='pause':
+                    s.position_ms=s.position(now);s.playing=False
+                elif kind=='seek':
+                    if type(value) not in (int,float) or not 0<=value<=min(21600_000,int((self.store.get_song(s.song_id).duration_s or 21600)*1000)):
+                        raise SessionError('posição inválida')
+                    s.position_ms=int(value);s.started_at_ms=now+120
+                elif kind=='volume':
+                    if not isinstance(value,dict) or value.get('stem') not in ('instrumental','vocals','backing') or type(value.get('level')) not in (int,float) or not 0<=value['level']<=1:
+                        raise SessionError('volume inválido')
+                    if value['stem']=='backing':
+                        from .library_read import LibraryReader
+                        if self.files is None or not LibraryReader(self.files).read(self.store.get_song(s.song_id)).lead_backing_available:
+                            raise SessionError('backing indisponível para esta música')
+                    setattr(s,value['stem'],float(value['level']))
+                else:
+                    if type(value) not in (int,float) or not 0<=value<=21600_000:raise SessionError('posição inválida')
+                    # Host reporta a posição de seu AudioContext; reancora os espectadores se necessário.
+                    if s.playing and abs(s.position(now)-value)>150:
+                        s.position_ms=int(value);s.started_at_ms=now
+                    else:return self.snapshot()
+            elif kind=='appearance':
+                if not isinstance(value,dict) or not value or set(value)-{'blur','opacity'}:
+                    raise SessionError('aparência inválida')
+                if 'blur' in value and (type(value['blur']) is not int or not 0<=value['blur']<=30):
+                    raise SessionError('blur inválido')
+                if 'opacity' in value and (type(value['opacity']) not in (int,float) or not 0<=value['opacity']<=1):
+                    raise SessionError('opacidade inválida')
+                if 'blur' in value:s.blur=value['blur']
+                if 'opacity' in value:s.bg_opacity=float(value['opacity'])
+            elif kind=='offset':
+                if not s.song_id:raise SessionError('sem música')
+                s.offset_ms=self.store.set_lyrics_offset(s.song_id,int(value))
+            elif kind=='background':
+                if not isinstance(value,str) or not re.fullmatch(r'data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+',value):
+                    raise SessionError('imagem inválida')
+                b=base64.b64decode(value.partition(',')[2],validate=True)
+                if len(b)>256_000 or len(b)<12:raise SessionError('imagem deve ter até 256 KB')
+                if not (b.startswith(b'\x89PNG\r\n\x1a\n') or b.startswith(b'\xff\xd8\xff') or b.startswith(b'RIFF') and b[8:12]==b'WEBP'):
+                    raise SessionError('conteúdo da imagem inválido')
+                s.background=value
+            s.version+=1;self._save();return self.snapshot()

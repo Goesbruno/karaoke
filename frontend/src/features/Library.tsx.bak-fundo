@@ -1,0 +1,116 @@
+import { useRef, useState } from "react";
+import { STATE_LABEL, formatDuration } from "../domain/format";
+import type { Diagnostics, Song } from "../domain/types";
+import { ApiError, type ApiPort } from "../ports/api";
+import { HOMONYM_QUESTION, uploadSong } from "./uploadFlow";
+import { LocalPreview } from "./LocalPreview";
+
+export function Library({ api, songs, isHost, reload, onChooseLyrics, onSing }: {
+  api: ApiPort; songs: Song[]; isHost: boolean; reload: () => void;
+  onChooseLyrics: (s: Song) => void; onSing: (s: Song) => void;
+}) {
+  const [msg, setMsg] = useState("");
+  const [diag, setDiag] = useState<Diagnostics | null>(null);
+  const [editing, setEditing] = useState<Song | null>(null);
+  const [title, setTitle] = useState("");
+  const [artist, setArtist] = useState("");
+  const [key, setKey] = useState("");
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const pick = useRef<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+
+  async function doUpload(id: string, file: File) {
+    const r = await uploadSong(api, id, file, () => window.confirm(HOMONYM_QUESTION));
+    setMsg(r.message); reload();
+  }
+
+  async function remove(s: Song) {
+    if (!window.confirm(`Excluir "${s.title}"? Isto removerá os metadados e os arquivos de áudio desta música. A ação não pode ser desfeita.`)) return;
+    try {
+      const r = await api.deleteSong(s.id);
+      setMsg(r.files_removed ? "Música excluída." : "Registro excluído, mas alguns arquivos não puderam ser removidos; serão limpos na próxima inicialização.");
+    } catch (e) { setMsg(e instanceof ApiError ? e.message : "Erro inesperado."); }
+    finally { reload(); }
+  }
+
+  function beginEdit(s: Song) {
+    setEditing(s); setTitle(s.title); setArtist(s.artist); setKey(s.key_manual || "");
+  }
+  async function saveEdit() {
+    if (!editing) return;
+    try {
+      await api.updateSong(editing.id, {title, artist, key_manual: key.trim() || null});
+      setEditing(null); setMsg("Metadados salvos."); reload();
+    } catch (e) { setMsg(e instanceof ApiError ? e.message : "Falha ao salvar."); }
+  }
+
+  return (
+    <div>
+      {msg && <p role="status">{msg}</p>}
+      <input ref={input} type="file" hidden accept=".mp3,.wav,.flac,.m4a,.ogg,audio/*"
+             onChange={(e) => { const f = e.target.files?.[0]; if (f && pick.current) void doUpload(pick.current, f); e.target.value = ""; }} />
+      {isHost && <button onClick={async () => { try { setDiag(await api.diagnostics()); } catch (e) { setMsg(e instanceof Error ? e.message : "erro"); } }}>Diagnosticar biblioteca</button>}
+      {diag && (
+        <div className="card">
+          {diag.songs.filter((s) => s.issues.length).map((s) => <p key={s.id}>{s.title}: {s.issues.join(", ")}</p>)}
+          {diag.orphan_dirs.length > 0 && <p>Pastas sem registro: {diag.orphan_dirs.join(", ")}</p>}
+          {!diag.songs.some((s) => s.issues.length) && !diag.orphan_dirs.length && <p>Nenhuma inconsistência encontrada.</p>}
+          <p className="hint">O diagnóstico não apaga nada.</p>
+        </div>
+      )}
+      {editing && <section className="card col" aria-label="Editar música">
+        <label>Título <input value={title} onChange={e => setTitle(e.target.value)} /></label>
+        <label>Artista <input value={artist} onChange={e => setArtist(e.target.value)} /></label>
+        <label>Tom manual (vazio = estimativa) <input value={key} onChange={e => setKey(e.target.value)} /></label>
+        <div className="row"><button disabled={!title.trim()} onClick={() => void saveEdit()}>Salvar</button>
+          <button onClick={() => setEditing(null)}>Cancelar</button></div>
+      </section>}
+      {!songs.length && <p>Nenhuma música cadastrada.</p>}
+      <ul className="cards">
+        {songs.map((s) => {
+          const done = s.status === "CONCLUIDA";
+          const canSing = Boolean(s.library?.ready && s.library?.lyrics_status === "LETRA_SINCRONIZADA");
+          return (
+            <li key={s.id} className="card">
+              <div className="cover" aria-hidden="true">♪</div>
+              <div className="col grow">
+                <strong>{s.title}</strong>
+                <div>{s.artist || "Artista não informado"}</div>
+                <div>{STATE_LABEL[s.status] ?? s.status} · {formatDuration(s.duration_s)}</div>
+                {s.status === "AGUARDANDO_UPLOAD" && (
+                  <div className="hint">
+                    {isHost ? "Falta enviar o arquivo de áudio autorizado." : "Aguardando o host enviar o arquivo de áudio."}
+                  </div>
+                )}
+                <div>Tom: {s.key_manual || s.library?.key_estimated || "inconclusivo"}{s.key_manual ? " (manual)" : ""}</div>
+                {!s.key_manual && s.library?.key_confidence != null && <div className="hint">Confiança heurística: {(s.library.key_confidence * 100).toFixed(1)}%</div>}
+                {!s.key_manual && s.library?.key_warning && <div className="hint">{s.library.key_warning}</div>}
+                <div className="hint">Letra: {s.library?.lyrics_status || "SEM_LETRA"} · Lead/backing: {s.library?.lead_backing_available ? "disponível" : "indisponível"}</div>
+                {done && !s.library?.ready && <p role="alert" className="error">Arquivos inconsistentes: {s.library?.issues?.join(", ") || "consulte o diagnóstico"}</p>}
+                <div className="row library-actions">
+                  {s.library?.ready && <button type="button" onClick={() => setPreviewId(previewId === s.id ? null : s.id)}>Prévia local</button>}
+                  {done && <button type="button" onClick={() => onChooseLyrics(s)}>{isHost ? "Selecionar letra" : "Ver letras"}</button>}
+                  {isHost && done && (
+                    <button type="button" disabled={!canSing} onClick={() => onSing(s)}
+                            title={canSing ? "Abrir a tela de canto com esta música" : "Escolha uma letra sincronizada antes de cantar"}>
+                      Cantar
+                    </button>
+                  )}
+                </div>
+                {isHost && done && !canSing && <div className="hint">Para cantar, selecione uma letra sincronizada.</div>}
+                {previewId === s.id && <LocalPreview api={api} song={s} onClose={() => setPreviewId(null)} />}
+                {isHost && (
+                  <div className="row">
+                    {s.status === "AGUARDANDO_UPLOAD" && <button onClick={() => { pick.current = s.id; input.current?.click(); }}>Enviar áudio autorizado</button>}
+                    <button onClick={() => beginEdit(s)}>Editar</button>
+                    <button onClick={() => remove(s)}>Excluir</button>
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}

@@ -1,0 +1,77 @@
+import { ApiError, type ApiPort } from "../ports/api";
+
+export class HttpApi implements ApiPort {
+  listBackgrounds() { return this.json<{ song_ids: string[] }>("/api/backgrounds"); }
+  setSongBackground(songId: string, file: File) {
+    const fd = new FormData(); fd.append("file", file);
+    return this.json<{ has_background: boolean }>(`/api/songs/${encodeURIComponent(songId)}/background`, { method: "PUT", body: fd });
+  }
+  clearSongBackground(songId: string) {
+    return this.json<{ has_background: boolean }>(`/api/songs/${encodeURIComponent(songId)}/background`, { method: "DELETE" });
+  }
+  private token: string | null = null;
+  constructor(private base = "") {}
+  setToken(t: string | null) { this.token = t; }
+
+  private async raw(path: string, init: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(init.headers);
+    if (this.token) headers.set("Authorization", `Bearer ${this.token}`);
+    let res: Response;
+    try {
+      res = await fetch(this.base + path, { ...init, headers });
+    } catch {
+      throw new ApiError(0, "sem_servidor", "Sem conexão com o servidor do karaokê.");
+    }
+    if (!res.ok) {
+      let body: { detail?: unknown; code?: string; existing_id?: string } = {};
+      try { body = await res.json(); } catch { /* corpo não é JSON */ }
+      const detail = typeof body.detail === "string" ? body.detail : `Erro ${res.status}`;
+      throw new ApiError(res.status, body.code, detail, body.existing_id);
+    }
+    return res;
+  }
+  private async json<T>(path: string, init?: RequestInit): Promise<T> {
+    return (await this.raw(path, init)).json() as Promise<T>;
+  }
+  private post<T>(path: string, body?: unknown) {
+    return this.json<T>(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
+  join(token: string) { return this.post<never>("/api/session/join", { token }); }
+  search(q: string) { return this.json<never>(`/api/search?q=${encodeURIComponent(q)}`); }
+  createSong(b: { title: string; artist: string; source_video_id: string | null }) { return this.post<never>("/api/songs", b); }
+  listSongs() { return this.json<never>("/api/songs"); }
+  listJobs() { return this.json<never>("/api/jobs"); }
+  upload(songId: string, file: File, allowHomonym: boolean) {
+    const fd = new FormData();
+    fd.append("file", file);
+    return this.json<never>(`/api/songs/${songId}/upload?allow_homonym=${allowHomonym}`, { method: "POST", body: fd });
+  }
+  deleteSong(id: string) { return this.json<never>(`/api/songs/${id}?confirm=true`, { method: "DELETE" }); }
+  retryJob(id: number) { return this.post<never>(`/api/jobs/${id}/retry`); }
+  cancelJob(id: number) { return this.post<never>(`/api/jobs/${id}/cancel`); }
+  network() { return this.json<never>("/api/network"); }
+  diagnostics() { return this.json<never>("/api/library/diagnostics"); }
+  updateLyricsOffset(id: string, offset_ms: number) { return this.json<{offset_ms:number}>(`/api/songs/${encodeURIComponent(id)}/lyrics/offset`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({offset_ms})}); }
+  lyricsSuggestions(id: string) { return this.json<import("../ports/api").LyricsSuggestion[]>(`/api/songs/${encodeURIComponent(id)}/lyrics/suggestions`); }
+  selectedLyrics(id: string) { return this.json<import("../ports/api").LyricsRecord>(`/api/songs/${encodeURIComponent(id)}/lyrics`); }
+  chooseLyrics(id: string, recordId: number) { return this.json<import("../ports/api").LyricsRecord>(`/api/songs/${encodeURIComponent(id)}/lyrics/lrclib/${recordId}`, {method:"PUT"}); }
+  importLrc(id: string, file: File) { const fd=new FormData();fd.append("file",file);return this.json<import("../ports/api").LyricsRecord>(`/api/songs/${encodeURIComponent(id)}/lyrics/import-lrc`,{method:"POST",body:fd}); }
+  updateSong(id: string, values: { title: string; artist: string; key_manual: string | null }) {
+    return this.json<never>(`/api/songs/${encodeURIComponent(id)}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values),
+    });
+  }
+  async audioBlobUrl(id: string, stem: "instrumental" | "vocals" | "lead" | "backing") {
+    const r = await this.raw(`/api/songs/${encodeURIComponent(id)}/audio/${stem}`);
+    return URL.createObjectURL(await r.blob());
+  }
+  async qrObjectUrl() {
+    const blob = await (await this.raw("/api/network/qr.svg")).blob();
+    return URL.createObjectURL(blob);
+  }
+}

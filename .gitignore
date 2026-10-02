@@ -1,0 +1,8 @@
+data/
+.env
+.venv/
+.venv-separator/
+__pycache__/
+*.db
+node_modules/
+frontend/dist/

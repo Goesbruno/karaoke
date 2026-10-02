@@ -1,0 +1,107 @@
+INFO:     Started server process [15588]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+Interface: Wi-Fi (192.168.0.17)  Porta: 8000
+URL de convidado: http://192.168.0.17:8000/#token=dXgBKaAEGoLjdExAqjHOm2NrDSiSI-dFS0t737SwrZM
+█▀▀▀▀▀▀▀███▀███▀▀▀▀████▀█▀▀██▀█▀▀▀▀▀▀▀█
+█ █▀▀▀█ █▀▀▄█▀█ █▀▄▄█▄▀▀  ▄▀ ▄█ █▀▀▀█ █
+█ █   █ █ ▀ █  ▄  ▀ █ ▄  █ ▀▀▀█ █   █ █
+█ ▀▀▀▀▀ █ █ ▄ █ ▄▀▄▀█▀█▀█▀▄▀█▀█ ▀▀▀▀▀ █
+█▀█▀▀▀▀▀█▄▀ ▄▀ ▄ ▀▄▄▄██▄▄▄▀▄▄██▀▀▀▀▀███
+█▄█ ▄▄▀▀▄ ▄▀▀▀▄▀ ▀  ▀▄█▄ ▄▄█ ▄ ▀▄▀▄  ▀█
+█▀█▀▀  ▀█ ████▀▀ ██   ▄▄▀ ▀ █▀▀▀██ ▄▀ █
+█▀▄ █ █▀  ▀ ▄█ █▀▀█ ████ ▄▀█▄ ▄ █▀▀██ █
+██  ▄ ▀▀ ▀▀█▄▄█▄▀██▀ ▀▀▄ ▄▀█  ▄█▀██▀█▀█
+█▀▀▀ █▄▀▄█  ▄▀█▀▄▄ ▀█▀█▄▀▄▄▄▄█ ▄▀▄▄  ▀█
+█▄ ▀  ▀▀▀ █ █ ███ ▀ █▀▄ ▀▄████▄█▀ ███▄█
+█ █  ▄▀▀ ▄ ▀▄ ▀▀   ▄▄▀▄▄█▄▀█▄▄▄▀   █▀▄█
+█ █▀█▄ ▀▀▄▀██ ▄▄▀▀▄▄▄█▀▀█▄▄██▄█▀▄▀ ▀▄██
+█ █▄▄▀▄▀▀▀▀██▀   ▀  ▀▄ ▄ ▄█▄  █▀ ▀ ▀▀▀█
+█ █▀▄▀▄▀ ▄▄██▄█  █▀  ▄█ █▄███▀  ▀ ▀█▀ █
+█▀▀▀▀▀▀▀█▄ █▀▀ ▀▀▄█▀▀▄▄█▀▄▄▄▄ █▀█  ██▀█
+█ █▀▀▀█ █ ▄▄ ▀▀▄███▀▄█▄▀█ ▄▄▀ ▀▀▀   █▀█
+█ █   █ █ █  ██ ▄▄ ▀████ ▄█▀▀█▀▀▀  ▀█ █
+█ ▀▀▀▀▀ █▀▄▀ ▀███ ▀█▀█▄▄▄  ▄▀▀█▄  █▀▀ █
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+Outras interfaces: Topaz Loopback=54.232.189.113 | use KARAOKE_ADVERTISE_IP para escolher
+ - Celulares e o servidor precisam estar na mesma rede (sem 'isolamento de clientes' no roteador).
+ - Firewall (PowerShell como administrador): New-NetFirewallRule -DisplayName "Karaoke LAN" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Private
+ - Se o IP mudar (DHCP), reinicie o servidor para gerar novo QR code ou reserve o IP no roteador.
+Token do host: rAVreusuS4goAb9BUpCYCLUDjINsgcF24hR7PXWQ-sM
+Dependem de internet: YouTube, LRCLIB e iTunes (se habilitado). A LAN funciona sem internet.
+INFO:     127.0.0.1:54304 - "GET /api/network HTTP/1.1" 200 OK
+INFO:     192.168.0.17:54303 - "WebSocket /api/ws/live" [accepted]
+INFO:     connection open
+INFO:     192.168.0.17:56221 - "GET / HTTP/1.1" 304 Not Modified
+INFO:     192.168.0.17:56221 - "GET /assets/index-BUDYcCEt.js HTTP/1.1" 304 Not Modified
+INFO:     192.168.0.17:51208 - "GET /assets/index-BfX8i4iT.css HTTP/1.1" 304 Not Modified
+INFO:     192.168.0.17:51208 - "POST /api/session/join HTTP/1.1" 200 OK
+INFO:     192.168.0.17:56221 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:56221 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:56221 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:56221 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:56221 - "GET /api/network HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/network/qr.svg HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:55428 - "WebSocket /api/ws/live" [accepted]
+INFO:     connection open
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:57523 - "GET / HTTP/1.1" 304 Not Modified
+INFO:     192.168.0.17:57523 - "POST /api/session/join HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/jobs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/jobs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:51411 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:54838 - "WebSocket /api/ws/live" [accepted]
+INFO:     connection open
+INFO:     192.168.0.17:51411 - "GET /api/network HTTP/1.1" 200 OK
+INFO:     192.168.0.17:60171 - "GET /api/network/qr.svg HTTP/1.1" 200 OK
+INFO:     192.168.0.17:60171 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:58743 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:53240 - "WebSocket /api/ws/live" [accepted]
+INFO:     connection open
+INFO:     192.168.0.17:58743 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     192.168.0.17:58743 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:58743 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:58743 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:58743 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:58743 - "GET /api/backgrounds HTTP/1.1" 200 OK
+INFO:     192.168.0.17:58743 - "GET /api/songs HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [15588]

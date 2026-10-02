@@ -1,0 +1,228 @@
+from pathlib import Path
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, WebSocket
+from fastapi.responses import JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from ..application.library_ops import CHUNK, DeletionService, ReconcileService, UploadService
+from ..application.library_read import LibraryReader
+from ..application.search import SearchService
+from ..application.use_cases import LibraryService
+from ..config import Settings
+from ..domain.errors import (Conflict, Duplicate, InvalidTransition, InvalidUrl, NotFound,
+                             ProviderUnavailable, RetryLimit, UploadRejected)
+from ..infrastructure.ffprobe_validator import FfprobeValidator
+from ..infrastructure.local_files import LocalFileStore
+from ..infrastructure.youtube_api import YouTubeDataApi
+from ..infrastructure import network as net
+from ..application.lyrics import LyricsService
+from ..domain.lrc import InvalidLRC
+from ..infrastructure.lyrics_store import LyricsRepository
+from ..infrastructure.lrclib_client import LrclibProvider, LyricsProviderError
+from ..application.live_session import LiveSession
+from .live_ws import LiveHub
+from .auth import Authenticator
+from ..infrastructure.song_backgrounds import SongBackgrounds
+from .background_routes import register_background_routes
+
+class SongIn(BaseModel):
+    title: str
+    artist: str = ""
+    source_video_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{11}$")
+
+class SongEdit(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    artist: str = Field(max_length=200)
+    key_manual: str | None = Field(default=None, max_length=40)
+
+class OffsetIn(BaseModel):
+    offset_ms: int = Field(ge=-10000, le=10000)
+
+def _json(code, body): return JSONResponse(body, status_code=code)
+
+def create_app(settings: Settings, store, files=None, validator=None, ifaces_provider=None, video_search=None) -> FastAPI:
+    app = FastAPI(title="Karaoke LAN")
+    files = files or LocalFileStore(settings.data_dir)
+    validator = validator or FfprobeValidator(settings.ffprobe_path)
+    ifaces_provider = ifaces_provider or net.discover_ipv4
+    if video_search is None and settings.youtube_api_key:
+        video_search = YouTubeDataApi(settings.youtube_api_key)
+    search_svc = SearchService(video_search)
+    svc = LibraryService(store, store, settings.max_attempts)
+    uploads = UploadService(store, files, validator, settings)
+    reconcile = ReconcileService(store, files)
+    deletion = DeletionService(store, files)
+    library = LibraryReader(files)
+    auth = Authenticator({settings.host_token: "host", settings.guest_token: "guest"}, settings.roles)
+    lyrics_repo = LyricsRepository(store)
+    lyrics_service = LyricsService(lyrics_repo, LrclibProvider(settings.lrclib_client_id))
+    live_hub = LiveHub(LiveSession(store, files=files), auth, settings.port)
+    store.recover()
+    files.purge_trash()
+
+    @app.exception_handler(NotFound)
+    def _nf(_, e): return _json(404, {"detail": str(e)})
+    @app.exception_handler(InvalidTransition)
+    def _it(_, e): return _json(409, {"detail": str(e)})
+    @app.exception_handler(RetryLimit)
+    def _rl(_, e): return _json(409, {"detail": str(e)})
+    @app.exception_handler(Conflict)
+    def _cf(_, e): return _json(409, {"detail": str(e)})
+    @app.exception_handler(UploadRejected)
+    def _ur(_, e): return _json(422, {"code": e.code, "detail": str(e)})
+    @app.exception_handler(Duplicate)
+    def _dp(_, e): return _json(409, {"code": e.code, "detail": str(e), "existing_id": e.existing_id})
+    @app.exception_handler(InvalidUrl)
+    def _iu(_, e): return _json(422, {"code": "url_invalida", "detail": str(e)})
+    @app.exception_handler(ProviderUnavailable)
+    def _pu(_, e): return _json(503, {"code": e.code, "detail": str(e)})
+    @app.exception_handler(InvalidLRC)
+    def _bad_lrc(_, e): return _json(422, {"detail":str(e)})
+    @app.exception_handler(LyricsProviderError)
+    def _provider_err(_, e):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail":str(e)},status_code=429 if e.retry_after else 503,
+                            headers={"Retry-After":str(e.retry_after)} if e.retry_after else {})
+    @app.exception_handler(ValueError)
+    def _ve(_, e): return _json(400, {"detail": str(e)})
+
+    def _job(j): return {**j.__dict__, "state": j.state.value, "position": store.position(j.id)}
+    def _song(s):
+        view = library.read(s).as_dict()
+        view["lyrics_status"] = lyrics_repo.get_lyrics(s.id)["status"]
+        return {**s.__dict__, "status": s.status.value, "key_manual": store.manual_key(s.id), "lyrics_offset_ms":store.lyrics_offset(s.id),
+                "library": view}
+
+    @app.post("/api/session/join")
+    def join(body: dict):
+        role = auth.role_of(body.get("token"))
+        if not role: raise HTTPException(401, "token invalido")
+        return {"role": role, "permissions": settings.roles.get(role, [])}
+
+    @app.get("/api/search")
+    def search(q: str, _=Depends(auth.require("search:read"))):
+        return search_svc.run(q)
+
+    @app.post("/api/songs", status_code=201)
+    def create(s: SongIn, _=Depends(auth.require("songs:create"))):
+        try: return _song(svc.add_song(s.title, s.artist, s.source_video_id))
+        except ValueError as e: raise HTTPException(422, str(e))
+
+    @app.get("/api/songs")
+    def songs(_=Depends(auth.require("songs:read"))):
+        return [_song(s) for s in store.list_songs()]
+
+    @app.patch("/api/songs/{song_id}")
+    def edit_song(song_id: str, body: SongEdit, _=Depends(auth.require("songs:edit"))):
+        title = body.title.strip(); artist = body.artist.strip()
+        key_manual = body.key_manual.strip() if body.key_manual is not None else None
+        if not title: raise HTTPException(422, "titulo obrigatorio")
+        if body.key_manual is not None and not key_manual:
+            key_manual = None
+        return _song(store.update_metadata(song_id, title, artist, key_manual))
+
+    @app.get("/api/songs/{song_id}/audio/{stem}")
+    def audio(song_id: str, stem: str, _=Depends(auth.require("songs:read"))):
+        from fastapi.responses import FileResponse
+        if stem not in ("instrumental", "vocals", "lead", "backing"):
+            raise HTTPException(404, "stem nao encontrado")
+        song = store.get_song(song_id)
+        view = library.read(song)
+        if not view.ready:
+            raise HTTPException(409, "musica indisponivel: consulte o diagnostico da biblioteca")
+        if stem in ("lead", "backing") and not view.lead_backing_available:
+            raise HTTPException(404, "lead/backing indisponivel para esta musica")
+        p = files.song_dir(song_id) / (stem + ".wav")
+        if not p.is_file() or p.is_symlink() or p.stat().st_size == 0:
+            raise HTTPException(404, "stem nao encontrado")
+        return FileResponse(p, media_type="audio/wav", filename=p.name)
+
+    @app.post("/api/songs/{song_id}/upload", status_code=201)
+    def upload(song_id: str, file: UploadFile = File(...), allow_homonym: bool = False,
+               _=Depends(auth.require("songs:upload"))):
+        job = uploads.upload(song_id, iter(lambda: file.file.read(CHUNK), b""), file.filename or "", allow_homonym)
+        return _job(job)
+
+    @app.delete("/api/songs/{song_id}")
+    def delete(song_id: str, confirm: bool = False, _=Depends(auth.require("songs:delete"))):
+        if not confirm:
+            raise HTTPException(400, "confirmacao obrigatoria: a exclusao remove metadados e arquivos de audio desta musica")
+        return deletion.delete(song_id)
+
+    @app.get("/api/library/diagnostics")
+    def diagnostics(_=Depends(auth.require("library:diagnostics"))):
+        return reconcile.run()
+
+    @app.post("/api/songs/{song_id}/enqueue", status_code=201)
+    def enqueue(song_id: str, _=Depends(auth.require("songs:enqueue"))):
+        return _job(svc.enqueue_uploaded(song_id))
+
+    @app.get("/api/jobs")
+    def jobs(_=Depends(auth.require("jobs:read"))):
+        return [_job(j) for j in store.list_jobs()]
+
+    @app.post("/api/jobs/{job_id}/retry")
+    def retry(job_id: int, _=Depends(auth.require("jobs:retry"))):
+        return _job(store.retry(job_id))
+
+    @app.post("/api/jobs/{job_id}/cancel")
+    def cancel(job_id: int, _=Depends(auth.require("jobs:cancel"))):
+        return _job(store.cancel(job_id))
+
+    def _selected():
+        ifs = ifaces_provider()
+        return ifs, net.choose(ifs, settings.advertise_ip)
+
+    @app.get("/api/network")
+    def network(_=Depends(auth.require("network:read"))):
+        ifs, sel = _selected()
+        return {"interfaces": [i.__dict__ for i in ifs], "selected": sel.__dict__ if sel else None,
+                "url": net.build_url(sel.ip, settings.port) if sel else None,
+                "diagnostics": net.diagnose(ifs, sel, settings.port),
+                "internet_dependencies": ["YouTube (pesquisa/previa)", "LRCLIB (letras)", "iTunes (capas, se habilitado)"]}
+
+    @app.get("/api/network/qr.svg")
+    def qr(_=Depends(auth.require("network:read"))):
+        from ..infrastructure.qr import qr_svg
+        _, sel = _selected()
+        if not sel: raise HTTPException(503, "sem interface de rede de LAN")
+        return Response(qr_svg(net.build_url(sel.ip, settings.port, settings.guest_token)), media_type="image/svg+xml")
+
+    @app.patch("/api/songs/{song_id}/lyrics/offset")
+    def update_lyrics_offset(song_id: str, body: OffsetIn, _=Depends(auth.require("lyrics:choose"))):
+        return {"offset_ms":store.set_lyrics_offset(song_id,body.offset_ms)}
+
+    @app.get("/api/songs/{song_id}/lyrics/suggestions")
+    def lyric_suggestions(song_id: str, _=Depends(auth.require("lyrics:search"))):
+        return lyrics_service.search(song_id)
+
+    @app.get("/api/songs/{song_id}/lyrics")
+    def selected_lyrics(song_id: str, _=Depends(auth.require("lyrics:read"))):
+        return lyrics_repo.get_lyrics(song_id)
+
+    @app.put("/api/songs/{song_id}/lyrics/lrclib/{record_id}")
+    def select_lyrics(song_id: str, record_id: int, _=Depends(auth.require("lyrics:choose"))):
+        return lyrics_service.choose(song_id,record_id)
+
+    @app.post("/api/songs/{song_id}/lyrics/import-lrc")
+    async def import_lrc(song_id: str, file: UploadFile = File(...), _=Depends(auth.require("lyrics:choose"))):
+        if not file.filename or not file.filename.lower().endswith('.lrc'):
+            raise HTTPException(422,'Somente arquivos .lrc')
+        raw=await file.read(256001)
+        if len(raw)>256000:raise HTTPException(413,'Arquivo .lrc excede 256 KB')
+        try: text=raw.decode('utf-8-sig')
+        except UnicodeDecodeError:raise HTTPException(422,'LRC deve estar em UTF-8')
+        return lyrics_service.import_lrc(song_id,text)
+
+    @app.websocket("/api/ws/live")
+    async def live_socket(websocket: WebSocket):
+        await live_hub.handle(websocket)
+
+    backgrounds = SongBackgrounds(store)
+
+    register_background_routes(app, backgrounds, auth.require("songs:edit"), auth.require("songs:read"))
+
+    dist = Path(settings.frontend_dist)
+    if (dist / "index.html").exists():
+        app.mount("/", StaticFiles(directory=dist, html=True), name="web")
+
+    return app

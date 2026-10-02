@@ -1,0 +1,35 @@
+import type { Diagnostics, JoinResult, Job, NetworkInfo, SearchResponse, Song } from "../domain/types";
+
+export class ApiError extends Error {
+  constructor(public status: number, public code: string | undefined, message: string, public existingId?: string) {
+    super(message);
+  }
+}
+
+export interface LyricsSuggestion { id: number; track_name: string; artist_name: string; duration: number | null; synced: boolean; plain: boolean; preview: string }
+export interface LyricsRecord { status: string; content: string; source: string | null; external_id: string | null; lines: [number,string][] }
+export interface ApiPort {
+  listBackgrounds(): Promise<{ song_ids: string[] }>;
+  setSongBackground(songId: string, file: File): Promise<{ has_background: boolean }>;
+  clearSongBackground(songId: string): Promise<{ has_background: boolean }>;
+  setToken(t: string | null): void;
+  join(token: string): Promise<JoinResult>;
+  search(q: string): Promise<SearchResponse>;
+  createSong(b: { title: string; artist: string; source_video_id: string | null }): Promise<Song>;
+  listSongs(): Promise<Song[]>;
+  listJobs(): Promise<Job[]>;
+  upload(songId: string, file: File, allowHomonym: boolean): Promise<Job>;
+  deleteSong(id: string): Promise<{ deleted: boolean; files_removed: boolean }>;
+  retryJob(id: number): Promise<Job>;
+  cancelJob(id: number): Promise<Job>;
+  network(): Promise<NetworkInfo>;
+  qrObjectUrl(): Promise<string>;
+  diagnostics(): Promise<Diagnostics>;
+  lyricsSuggestions(id: string): Promise<LyricsSuggestion[]>;
+  selectedLyrics(id: string): Promise<LyricsRecord>;
+  chooseLyrics(id: string, recordId: number): Promise<LyricsRecord>;
+  importLrc(id: string, file: File): Promise<LyricsRecord>;
+  updateLyricsOffset(id: string, offset_ms: number): Promise<{offset_ms: number}>;
+  updateSong(id: string, values: { title: string; artist: string; key_manual: string | null }): Promise<Song>;
+  audioBlobUrl(id: string, stem: "instrumental" | "vocals" | "lead" | "backing"): Promise<string>;
+}
