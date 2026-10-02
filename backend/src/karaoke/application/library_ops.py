@@ -50,6 +50,49 @@ class UploadService:
             self.files.discard_tmp(song_id); raise
         return self.store.enqueue(song_id, self.s.max_attempts)
 
+    def upload_from_path(
+            self,
+            song_id: str,
+            file_path: Path,
+            filename: str | None = None,
+            allow_homonym: bool = False,
+    ):
+        """Realiza o upload a partir de um arquivo já presente no disco.
+
+        Útil para integrações que geram o arquivo localmente (ex: download
+        do YouTube). Reutiliza toda a validação do upload convencional.
+
+        Args:
+            song_id: ID da música em estado AGUARDANDO_UPLOAD.
+            file_path: Caminho do arquivo de áudio a ser processado.
+            filename: Nome de exibição (se None, usa o nome do arquivo).
+            allow_homonym: Permite homônimos, como no upload normal.
+
+        Returns:
+            O job enfileirado (mesmo retorno de `upload`).
+        """
+        file_path = Path(file_path)
+        if not file_path.is_file():
+            raise UploadRejected("arquivo", f"arquivo não encontrado: {file_path}")
+
+        display_name = filename or file_path.name
+
+        # Lê o arquivo em chunks para reutilizar a lógica de streaming
+        def _chunks():
+            with file_path.open("rb") as f:
+                while True:
+                    chunk = f.read(CHUNK)
+                    if not chunk:
+                        break
+                    yield chunk
+
+        return self.upload(
+            song_id,
+            _chunks(),
+            display_name,
+            allow_homonym=allow_homonym,
+        )
+
 class ReconcileService:
     """Apenas diagnostica. Nunca apaga dados."""
     def __init__(self, store, files, essential=ESSENTIAL_STEMS):

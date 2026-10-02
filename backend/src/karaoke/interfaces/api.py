@@ -23,6 +23,12 @@ from .live_ws import LiveHub
 from .auth import Authenticator
 from ..infrastructure.song_backgrounds import SongBackgrounds
 from .background_routes import register_background_routes
+import tempfile
+from pathlib import Path
+from ..infrastructure.youtube_downloader import (
+    download_audio_from_youtube,
+    YouTubeDownloadError,
+)
 
 class SongIn(BaseModel):
     title: str
@@ -33,6 +39,14 @@ class SongEdit(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     artist: str = Field(max_length=200)
     key_manual: str | None = Field(default=None, max_length=40)
+
+class YouTubeDownloadIn(BaseModel):
+    video_url: str = Field(
+        ...,
+        min_length=10,
+        description="URL completa do vídeo do YouTube.",
+    )
+    allow_homonym: bool = False
 
 class OffsetIn(BaseModel):
     offset_ms: int = Field(ge=-10000, le=10000)
@@ -92,6 +106,10 @@ def create_app(settings: Settings, store, files=None, validator=None, ifaces_pro
         return {**s.__dict__, "status": s.status.value, "key_manual": store.manual_key(s.id), "lyrics_offset_ms":store.lyrics_offset(s.id),
                 "library": view}
 
+    @app.exception_handler(YouTubeDownloadError)
+    def _yd(_, e):
+        return _json(422, {"detail": str(e)})
+
     @app.post("/api/session/join")
     def join(body: dict):
         role = auth.role_of(body.get("token"))
@@ -141,6 +159,49 @@ def create_app(settings: Settings, store, files=None, validator=None, ifaces_pro
                _=Depends(auth.require("songs:upload"))):
         job = uploads.upload(song_id, iter(lambda: file.file.read(CHUNK), b""), file.filename or "", allow_homonym)
         return _job(job)
+
+    @app.post("/api/songs/{song_id}/download-youtube", status_code=201)
+    def download_youtube(
+        song_id: str,
+        body: YouTubeDownloadIn,
+        _=Depends(auth.require("songs:upload")),):
+    """Baixa o áudio de um vídeo do YouTube e o injeta no fluxo de upload.
+
+    O arquivo MP3 gerado é tratado exatamente como um upload convencional:
+    passa pelas mesmas validações e enfileira o job de separação.
+    """
+    song = store.get_song(song_id)
+    # Reaproveita a validação de estado do UploadService
+    if song.status != State.AGUARDANDO_UPLOAD:
+        raise HTTPException(
+            409,
+            f"música em estado {song.status.value}; download não permitido",
+        )
+
+    # Diretório temporário para o download
+    download_dir = settings.youtube_download_dir or tempfile.gettempdir()
+
+    try:
+        mp3_path = download_audio_from_youtube(
+            body.video_url,
+            output_dir=download_dir,
+        )
+    except YouTubeDownloadError as e:
+        raise HTTPException(422, f"Falha no download do YouTube: {e}")
+
+    try:
+        # Injeta o arquivo baixado no fluxo de upload normal
+        job = uploads.upload_from_path(
+            song_id,
+            mp3_path,
+            filename=mp3_path.name,
+            allow_homonym=body.allow_homonym,
+        )
+    finally:
+        # Remove o arquivo temporário após o upload (já foi copiado para o disco)
+        mp3_path.unlink(missing_ok=True)
+
+    return _job(job)
 
     @app.delete("/api/songs/{song_id}")
     def delete(song_id: str, confirm: bool = False, _=Depends(auth.require("songs:delete"))):

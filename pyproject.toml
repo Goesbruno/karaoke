@@ -10,6 +10,7 @@ dependencies = [
   "qrcode>=7.4",
   "numpy>=1.26",
   "websockets>=17.1",
+  "yt-dlp>=2026.8.19",
 ]
 
 [dependency-groups]

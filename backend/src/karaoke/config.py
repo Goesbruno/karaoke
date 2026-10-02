@@ -28,6 +28,8 @@ class Settings:
     lrclib_client_id: str = "KaraokeLAN/0.6 (admin@example.org)"
     youtube_api_key: str = ""
     frontend_dist: Path = Path("frontend/dist")
+    youtube_download_dir: str = ""
+    youtube_mp3_quality: str = "192"
 
     @property
     def db_path(self) -> Path:
@@ -59,4 +61,9 @@ class Settings:
             lrclib_client_id=e.get("KARAOKE_LRCLIB_CLIENT_ID", "KaraokeLAN/0.6 (admin@example.org)"),
             youtube_api_key=e.get("YOUTUBE_API_KEY", ""),
             frontend_dist=Path(e.get("KARAOKE_FRONTEND_DIST", "frontend/dist")),
+            youtube_download_dir=os.environ.get(
+                "KARAOKE_YOUTUBE_DOWNLOAD_DIR",
+                "",  # vazio = usa tempfile.gettempdir()
+            ),
+            youtube_mp3_quality=os.environ.get("KARAOKE_YOUTUBE_MP3_QUALITY", "192"),
         )
