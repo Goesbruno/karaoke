@@ -61,9 +61,9 @@ class Settings:
             lrclib_client_id=e.get("KARAOKE_LRCLIB_CLIENT_ID", "KaraokeLAN/0.6 (admin@example.org)"),
             youtube_api_key=e.get("YOUTUBE_API_KEY", ""),
             frontend_dist=Path(e.get("KARAOKE_FRONTEND_DIST", "frontend/dist")),
-            youtube_download_dir=os.environ.get(
+            youtube_download_dir=e.get(
                 "KARAOKE_YOUTUBE_DOWNLOAD_DIR",
                 "",  # vazio = usa tempfile.gettempdir()
             ),
-            youtube_mp3_quality=os.environ.get("KARAOKE_YOUTUBE_MP3_QUALITY", "192"),
+            youtube_mp3_quality=e.get("KARAOKE_YOUTUBE_MP3_QUALITY", "192"),
         )
