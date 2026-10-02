@@ -5,15 +5,19 @@ from ..domain.states import State
 
 ESSENTIAL_STEMS = ("instrumental.wav", "vocals.wav")  # nomes finais definidos no modulo do separador
 
+
 def safe_display_name(name: str) -> str:
     name = (name or "").replace("\\", "/").split("/")[-1]
     name = re.sub(r"[\x00-\x1f\x7f]", "", name).strip()[:120]
     return name or "arquivo"
 
+
 def ext_of(name: str) -> str:
     return Path(name).suffix.lower().lstrip(".")
 
+
 CHUNK = 1024 * 1024
+
 
 class UploadService:
     def __init__(self, store, files, validator, settings):
@@ -40,14 +44,17 @@ class UploadService:
             if not allow_homonym:
                 h = self.store.find_homonyms(song.title, song.artist, song_id)
                 if h:
-                    raise Duplicate("homonimo", "ja existe musica com mesmo titulo e artista e conteudo diferente", h[0].id)
+                    raise Duplicate("homonimo", "ja existe musica com mesmo titulo e artista e conteudo diferente",
+                                    h[0].id)
             final = self.files.commit(song_id, tmp, ext)
             try:
                 self.store.set_file(song_id, sha, info.duration_s, display, ext)
             except BaseException:
-                final.unlink(missing_ok=True); raise
+                final.unlink(missing_ok=True);
+                raise
         except BaseException:
-            self.files.discard_tmp(song_id); raise
+            self.files.discard_tmp(song_id);
+            raise
         return self.store.enqueue(song_id, self.s.max_attempts)
 
     def upload_from_path(
@@ -61,15 +68,6 @@ class UploadService:
 
         Útil para integrações que geram o arquivo localmente (ex: download
         do YouTube). Reutiliza toda a validação do upload convencional.
-
-        Args:
-            song_id: ID da música em estado AGUARDANDO_UPLOAD.
-            file_path: Caminho do arquivo de áudio a ser processado.
-            filename: Nome de exibição (se None, usa o nome do arquivo).
-            allow_homonym: Permite homônimos, como no upload normal.
-
-        Returns:
-            O job enfileirado (mesmo retorno de `upload`).
         """
         file_path = Path(file_path)
         if not file_path.is_file():
@@ -77,7 +75,6 @@ class UploadService:
 
         display_name = filename or file_path.name
 
-        # Lê o arquivo em chunks para reutilizar a lógica de streaming
         def _chunks():
             with file_path.open("rb") as f:
                 while True:
@@ -93,8 +90,10 @@ class UploadService:
             allow_homonym=allow_homonym,
         )
 
+
 class ReconcileService:
     """Apenas diagnostica. Nunca apaga dados."""
+
     def __init__(self, store, files, essential=ESSENTIAL_STEMS):
         self.store, self.files, self.essential = store, files, essential
 
@@ -106,7 +105,8 @@ class ReconcileService:
             issues = []
             if s.id not in dirs and s.status != State.AGUARDANDO_UPLOAD:
                 issues.append("pasta_ausente")
-            elif s.status not in (State.AGUARDANDO_UPLOAD, State.CANCELADA) and not any(f.startswith("original.") for f in present):
+            elif s.status not in (State.AGUARDANDO_UPLOAD, State.CANCELADA) and not any(
+                    f.startswith("original.") for f in present):
                 issues.append("original_ausente")
             if s.status == State.CONCLUIDA and any(e not in present for e in self.essential):
                 issues.append("stems_ausentes")
@@ -114,6 +114,7 @@ class ReconcileService:
                            "pronta": s.status == State.CONCLUIDA and not issues})
         known = {s.id for s in songs}
         return {"songs": report, "orphan_dirs": sorted(dirs - known)}
+
 
 class DeletionService:
     def __init__(self, store, files):
@@ -125,5 +126,6 @@ class DeletionService:
         try:
             self.store.delete_song(song_id)
         except BaseException:
-            self.files.rollback_delete(token); raise
+            self.files.rollback_delete(token);
+            raise
         return {"deleted": True, "files_removed": self.files.finish_delete(token)}

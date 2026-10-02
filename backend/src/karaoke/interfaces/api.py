@@ -30,15 +30,18 @@ from ..infrastructure.youtube_downloader import (
     YouTubeDownloadError,
 )
 
+
 class SongIn(BaseModel):
     title: str
     artist: str = ""
     source_video_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{11}$")
 
+
 class SongEdit(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     artist: str = Field(max_length=200)
     key_manual: str | None = Field(default=None, max_length=40)
+
 
 class YouTubeDownloadIn(BaseModel):
     video_url: str = Field(
@@ -48,12 +51,16 @@ class YouTubeDownloadIn(BaseModel):
     )
     allow_homonym: bool = False
 
+
 class OffsetIn(BaseModel):
     offset_ms: int = Field(ge=-10000, le=10000)
 
+
 def _json(code, body): return JSONResponse(body, status_code=code)
 
-def create_app(settings: Settings, store, files=None, validator=None, ifaces_provider=None, video_search=None) -> FastAPI:
+
+def create_app(settings: Settings, store, files=None, validator=None, ifaces_provider=None,
+               video_search=None) -> FastAPI:
     app = FastAPI(title="Karaoke LAN")
     files = files or LocalFileStore(settings.data_dir)
     validator = validator or FfprobeValidator(settings.ffprobe_path)
@@ -74,36 +81,59 @@ def create_app(settings: Settings, store, files=None, validator=None, ifaces_pro
     files.purge_trash()
 
     @app.exception_handler(NotFound)
-    def _nf(_, e): return _json(404, {"detail": str(e)})
+    def _nf(_, e):
+        return _json(404, {"detail": str(e)})
+
     @app.exception_handler(InvalidTransition)
-    def _it(_, e): return _json(409, {"detail": str(e)})
+    def _it(_, e):
+        return _json(409, {"detail": str(e)})
+
     @app.exception_handler(RetryLimit)
-    def _rl(_, e): return _json(409, {"detail": str(e)})
+    def _rl(_, e):
+        return _json(409, {"detail": str(e)})
+
     @app.exception_handler(Conflict)
-    def _cf(_, e): return _json(409, {"detail": str(e)})
+    def _cf(_, e):
+        return _json(409, {"detail": str(e)})
+
     @app.exception_handler(UploadRejected)
-    def _ur(_, e): return _json(422, {"code": e.code, "detail": str(e)})
+    def _ur(_, e):
+        return _json(422, {"code": e.code, "detail": str(e)})
+
     @app.exception_handler(Duplicate)
-    def _dp(_, e): return _json(409, {"code": e.code, "detail": str(e), "existing_id": e.existing_id})
+    def _dp(_, e):
+        return _json(409, {"code": e.code, "detail": str(e), "existing_id": e.existing_id})
+
     @app.exception_handler(InvalidUrl)
-    def _iu(_, e): return _json(422, {"code": "url_invalida", "detail": str(e)})
+    def _iu(_, e):
+        return _json(422, {"code": "url_invalida", "detail": str(e)})
+
     @app.exception_handler(ProviderUnavailable)
-    def _pu(_, e): return _json(503, {"code": e.code, "detail": str(e)})
+    def _pu(_, e):
+        return _json(503, {"code": e.code, "detail": str(e)})
+
     @app.exception_handler(InvalidLRC)
-    def _bad_lrc(_, e): return _json(422, {"detail":str(e)})
+    def _bad_lrc(_, e):
+        return _json(422, {"detail": str(e)})
+
     @app.exception_handler(LyricsProviderError)
     def _provider_err(_, e):
         from fastapi.responses import JSONResponse
-        return JSONResponse({"detail":str(e)},status_code=429 if e.retry_after else 503,
-                            headers={"Retry-After":str(e.retry_after)} if e.retry_after else {})
-    @app.exception_handler(ValueError)
-    def _ve(_, e): return _json(400, {"detail": str(e)})
+        return JSONResponse({"detail": str(e)}, status_code=429 if e.retry_after else 503,
+                            headers={"Retry-After": str(e.retry_after)} if e.retry_after else {})
 
-    def _job(j): return {**j.__dict__, "state": j.state.value, "position": store.position(j.id)}
+    @app.exception_handler(ValueError)
+    def _ve(_, e):
+        return _json(400, {"detail": str(e)})
+
+    def _job(j):
+        return {**j.__dict__, "state": j.state.value, "position": store.position(j.id)}
+
     def _song(s):
         view = library.read(s).as_dict()
         view["lyrics_status"] = lyrics_repo.get_lyrics(s.id)["status"]
-        return {**s.__dict__, "status": s.status.value, "key_manual": store.manual_key(s.id), "lyrics_offset_ms":store.lyrics_offset(s.id),
+        return {**s.__dict__, "status": s.status.value, "key_manual": store.manual_key(s.id),
+                "lyrics_offset_ms": store.lyrics_offset(s.id),
                 "library": view}
 
     @app.exception_handler(YouTubeDownloadError)
@@ -122,8 +152,10 @@ def create_app(settings: Settings, store, files=None, validator=None, ifaces_pro
 
     @app.post("/api/songs", status_code=201)
     def create(s: SongIn, _=Depends(auth.require("songs:create"))):
-        try: return _song(svc.add_song(s.title, s.artist, s.source_video_id))
-        except ValueError as e: raise HTTPException(422, str(e))
+        try:
+            return _song(svc.add_song(s.title, s.artist, s.source_video_id))
+        except ValueError as e:
+            raise HTTPException(422, str(e))
 
     @app.get("/api/songs")
     def songs(_=Depends(auth.require("songs:read"))):
@@ -131,7 +163,8 @@ def create_app(settings: Settings, store, files=None, validator=None, ifaces_pro
 
     @app.patch("/api/songs/{song_id}")
     def edit_song(song_id: str, body: SongEdit, _=Depends(auth.require("songs:edit"))):
-        title = body.title.strip(); artist = body.artist.strip()
+        title = body.title.strip();
+        artist = body.artist.strip()
         key_manual = body.key_manual.strip() if body.key_manual is not None else None
         if not title: raise HTTPException(422, "titulo obrigatorio")
         if body.key_manual is not None and not key_manual:
@@ -162,51 +195,49 @@ def create_app(settings: Settings, store, files=None, validator=None, ifaces_pro
 
     @app.post("/api/songs/{song_id}/download-youtube", status_code=201)
     def download_youtube(
-        song_id: str,
-        body: YouTubeDownloadIn,
-        _=Depends(auth.require("songs:upload")),):
-    """Baixa o áudio de um vídeo do YouTube e o injeta no fluxo de upload.
+            song_id: str,
+            body: YouTubeDownloadIn,
+            _=Depends(auth.require("songs:upload")),
+    ):
+        """Baixa o áudio de um vídeo do YouTube e o injeta no fluxo de upload.
 
-    O arquivo MP3 gerado é tratado exatamente como um upload convencional:
-    passa pelas mesmas validações e enfileira o job de separação.
-    """
-    song = store.get_song(song_id)
-    # Reaproveita a validação de estado do UploadService
-    if song.status != State.AGUARDANDO_UPLOAD:
-        raise HTTPException(
-            409,
-            f"música em estado {song.status.value}; download não permitido",
-        )
+        O arquivo MP3 gerado é tratado exatamente como um upload convencional:
+        passa pelas mesmas validações e enfileira o job de separação.
+        """
+        song = store.get_song(song_id)
+        if song.status != State.AGUARDANDO_UPLOAD:
+            raise HTTPException(
+                409,
+                f"música em estado {song.status.value}; download não permitido",
+            )
 
-    # Diretório temporário para o download
-    download_dir = settings.youtube_download_dir or tempfile.gettempdir()
+        download_dir = settings.youtube_download_dir or tempfile.gettempdir()
 
-    try:
-        mp3_path = download_audio_from_youtube(
-            body.video_url,
-            output_dir=download_dir,
-        )
-    except YouTubeDownloadError as e:
-        raise HTTPException(422, f"Falha no download do YouTube: {e}")
+        try:
+            mp3_path = download_audio_from_youtube(
+                body.video_url,
+                output_dir=download_dir,
+            )
+        except YouTubeDownloadError as e:
+            raise HTTPException(422, f"Falha no download do YouTube: {e}")
 
-    try:
-        # Injeta o arquivo baixado no fluxo de upload normal
-        job = uploads.upload_from_path(
-            song_id,
-            mp3_path,
-            filename=mp3_path.name,
-            allow_homonym=body.allow_homonym,
-        )
-    finally:
-        # Remove o arquivo temporário após o upload (já foi copiado para o disco)
-        mp3_path.unlink(missing_ok=True)
+        try:
+            job = uploads.upload_from_path(
+                song_id,
+                mp3_path,
+                filename=mp3_path.name,
+                allow_homonym=body.allow_homonym,
+            )
+        finally:
+            mp3_path.unlink(missing_ok=True)
 
-    return _job(job)
+        return _job(job)
 
     @app.delete("/api/songs/{song_id}")
     def delete(song_id: str, confirm: bool = False, _=Depends(auth.require("songs:delete"))):
         if not confirm:
-            raise HTTPException(400, "confirmacao obrigatoria: a exclusao remove metadados e arquivos de audio desta musica")
+            raise HTTPException(400,
+                                "confirmacao obrigatoria: a exclusao remove metadados e arquivos de audio desta musica")
         return deletion.delete(song_id)
 
     @app.get("/api/library/diagnostics")
@@ -239,7 +270,8 @@ def create_app(settings: Settings, store, files=None, validator=None, ifaces_pro
         return {"interfaces": [i.__dict__ for i in ifs], "selected": sel.__dict__ if sel else None,
                 "url": net.build_url(sel.ip, settings.port) if sel else None,
                 "diagnostics": net.diagnose(ifs, sel, settings.port),
-                "internet_dependencies": ["YouTube (pesquisa/previa)", "LRCLIB (letras)", "iTunes (capas, se habilitado)"]}
+                "internet_dependencies": ["YouTube (pesquisa/previa)", "LRCLIB (letras)",
+                                          "iTunes (capas, se habilitado)"]}
 
     @app.get("/api/network/qr.svg")
     def qr(_=Depends(auth.require("network:read"))):
@@ -250,7 +282,7 @@ def create_app(settings: Settings, store, files=None, validator=None, ifaces_pro
 
     @app.patch("/api/songs/{song_id}/lyrics/offset")
     def update_lyrics_offset(song_id: str, body: OffsetIn, _=Depends(auth.require("lyrics:choose"))):
-        return {"offset_ms":store.set_lyrics_offset(song_id,body.offset_ms)}
+        return {"offset_ms": store.set_lyrics_offset(song_id, body.offset_ms)}
 
     @app.get("/api/songs/{song_id}/lyrics/suggestions")
     def lyric_suggestions(song_id: str, _=Depends(auth.require("lyrics:search"))):
@@ -262,17 +294,19 @@ def create_app(settings: Settings, store, files=None, validator=None, ifaces_pro
 
     @app.put("/api/songs/{song_id}/lyrics/lrclib/{record_id}")
     def select_lyrics(song_id: str, record_id: int, _=Depends(auth.require("lyrics:choose"))):
-        return lyrics_service.choose(song_id,record_id)
+        return lyrics_service.choose(song_id, record_id)
 
     @app.post("/api/songs/{song_id}/lyrics/import-lrc")
     async def import_lrc(song_id: str, file: UploadFile = File(...), _=Depends(auth.require("lyrics:choose"))):
         if not file.filename or not file.filename.lower().endswith('.lrc'):
-            raise HTTPException(422,'Somente arquivos .lrc')
-        raw=await file.read(256001)
-        if len(raw)>256000:raise HTTPException(413,'Arquivo .lrc excede 256 KB')
-        try: text=raw.decode('utf-8-sig')
-        except UnicodeDecodeError:raise HTTPException(422,'LRC deve estar em UTF-8')
-        return lyrics_service.import_lrc(song_id,text)
+            raise HTTPException(422, 'Somente arquivos .lrc')
+        raw = await file.read(256001)
+        if len(raw) > 256000: raise HTTPException(413, 'Arquivo .lrc excede 256 KB')
+        try:
+            text = raw.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            raise HTTPException(422, 'LRC deve estar em UTF-8')
+        return lyrics_service.import_lrc(song_id, text)
 
     @app.websocket("/api/ws/live")
     async def live_socket(websocket: WebSocket):
